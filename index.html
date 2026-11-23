@@ -27,6 +27,18 @@
             display: block;
             image-rendering: pixelated;
         }
+
+        @media (max-width: 640px), (max-height: 500px) {
+            #gameCard {
+                height: 100vh;
+                height: 100dvh;
+            }
+
+            #jumpBtn,
+            #duckBtn {
+                min-height: 44px;
+            }
+        }
     </style>
 </head>
 
@@ -73,10 +85,6 @@
                     Sound: On
                 </button>
 
-                <button id="fullscreenBtn" type="button" title="Toggle Fullscreen (F)"
-                    class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-neutral-300 bg-white hover:bg-neutral-100 active:scale-95 transition cursor-pointer">
-                    Fullscreen
-                </button>
             </div>
         </header>
 
@@ -273,7 +281,6 @@
             const gameCard = document.getElementById('gameCard');
             const pauseBtn = document.getElementById('pauseBtn');
             const soundBtn = document.getElementById('soundBtn');
-            const fullscreenBtn = document.getElementById('fullscreenBtn');
             const jumpBtn = document.getElementById('jumpBtn');
             const duckBtn = document.getElementById('duckBtn');
 
@@ -469,6 +476,7 @@
             let spawnTimer = 0;
             let clouds = [];
             let stars = [];
+            let trees = [];
             let groundBumps = [];
 
             function padScore(val) {
@@ -481,10 +489,16 @@
             }
 
             function resizeCanvas() {
-                const rect = stageContainer.getBoundingClientRect();
+                if (isExpandedFullscreen) {
+                    const stageRect = stageContainer.getBoundingClientRect();
+                    canvas.style.width = `${stageRect.width}px`;
+                    canvas.style.height = `${stageRect.height}px`;
+                }
+
+                const canvasRect = canvas.getBoundingClientRect();
                 dpr = Math.min(window.devicePixelRatio || 1, 2);
-                width = Math.max(320, Math.floor(rect.width));
-                height = Math.max(210, Math.floor(rect.height));
+                width = Math.max(isExpandedFullscreen ? 1 : 320, Math.floor(canvasRect.width));
+                height = Math.max(isExpandedFullscreen ? 1 : 210, Math.floor(canvasRect.height));
                 canvas.width = width * dpr;
                 canvas.height = height * dpr;
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -516,6 +530,16 @@
                         x: Math.random() * width,
                         y: 18 + Math.random() * (groundY - 85),
                         size: Math.random() > 0.7 ? 2 : 1.5
+                    });
+                }
+
+                trees = [];
+                for (let i = 0; i < 13; i++) {
+                    trees.push({
+                        x: Math.random() * width,
+                        scale: 0.45 + Math.random() * 0.45,
+                        speed: 0.12 + Math.random() * 0.12,
+                        color: Math.floor(Math.random() * 3)
                     });
                 }
 
@@ -792,6 +816,14 @@
                         c.y = 28 + Math.random() * (groundY - 125);
                     }
                 }
+                for (const tree of trees) {
+                    tree.x -= effectiveSpeed * tree.speed * dt;
+                    if (tree.x < -70) {
+                        tree.x = width + 35 + Math.random() * 90;
+                        tree.scale = 0.45 + Math.random() * 0.45;
+                        tree.color = Math.floor(Math.random() * 3);
+                    }
+                }
                 for (const b of groundBumps) {
                     b.x -= effectiveSpeed * dt;
                     if (b.x + b.w < 0) {
@@ -862,6 +894,49 @@
                 const g = Math.round(c1[1] + (c2[1] - c1[1]) * t);
                 const b = Math.round(c1[2] + (c2[2] - c1[2]) * t);
                 return `rgb(${r}, ${g}, ${b})`;
+            }
+
+            function drawHillLayer(color, baseY, height, segmentWidth, offset) {
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                const startX = -((offset % segmentWidth) + segmentWidth);
+                ctx.moveTo(startX, groundY);
+                ctx.lineTo(startX, baseY);
+                for (let x = startX; x < width + segmentWidth; x += segmentWidth) {
+                    ctx.bezierCurveTo(
+                        x + segmentWidth * 0.28, baseY - height,
+                        x + segmentWidth * 0.72, baseY - height,
+                        x + segmentWidth, baseY
+                    );
+                }
+                ctx.lineTo(width, groundY);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            function drawTree(tree, night) {
+                const x = tree.x;
+                const baseY = groundY + 1;
+                const scale = tree.scale;
+                const palettes = [
+                    [[46, 160, 112], [35, 83, 91]],
+                    [[115, 190, 83], [51, 105, 89]],
+                    [[39, 139, 125], [41, 82, 105]]
+                ];
+                const foliage = lerpColor(palettes[tree.color][0], palettes[tree.color][1], night);
+                const trunk = lerpColor([148, 105, 65], [76, 69, 89], night);
+
+                ctx.save();
+                ctx.globalAlpha = 0.8;
+                ctx.fillStyle = trunk;
+                ctx.fillRect(x - 3 * scale, baseY - 27 * scale, 6 * scale, 28 * scale);
+                ctx.fillStyle = foliage;
+                ctx.beginPath();
+                ctx.arc(x, baseY - 34 * scale, 15 * scale, 0, Math.PI * 2);
+                ctx.arc(x - 10 * scale, baseY - 26 * scale, 11 * scale, 0, Math.PI * 2);
+                ctx.arc(x + 10 * scale, baseY - 25 * scale, 12 * scale, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
             }
 
             // Pixel-art Chrome Dino Sprite
@@ -991,39 +1066,78 @@
                 const fgColor = lerpColor([83, 83, 83], [228, 228, 231], nightFactor);
                 const mutedColor = lerpColor([209, 213, 219], [63, 63, 70], nightFactor);
 
-                ctx.fillStyle = bgColor;
+                const sky = ctx.createLinearGradient(0, 0, 0, groundY);
+                sky.addColorStop(0, lerpColor([86, 190, 255], [20, 27, 68], nightFactor));
+                sky.addColorStop(1, lerpColor([218, 246, 255], [77, 65, 117], nightFactor));
+                ctx.fillStyle = sky;
                 ctx.fillRect(0, 0, width, height);
 
-                // Stars & Moon at night
+                // Sun by day, stars and a crescent moon at night.
+                const celestialX = width - 72;
+                const celestialY = 48;
+                if (nightFactor < 0.98) {
+                    ctx.save();
+                    ctx.globalAlpha = 1 - nightFactor;
+                    const sunGlow = ctx.createRadialGradient(celestialX, celestialY, 8, celestialX, celestialY, 34);
+                    sunGlow.addColorStop(0, 'rgba(255, 213, 92, 0.48)');
+                    sunGlow.addColorStop(1, 'rgba(255, 213, 92, 0)');
+                    ctx.fillStyle = sunGlow;
+                    ctx.beginPath();
+                    ctx.arc(celestialX, celestialY, 34, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#ffd45c';
+                    ctx.beginPath();
+                    ctx.arc(celestialX, celestialY, 15, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                }
                 if (nightFactor > 0.05) {
                     ctx.save();
                     ctx.globalAlpha = nightFactor;
-                    ctx.fillStyle = fgColor;
+                    ctx.fillStyle = '#f4f1d0';
                     for (const s of stars) {
                         ctx.fillRect(s.x, s.y, s.size, s.size);
                     }
                     ctx.beginPath();
-                    ctx.arc(width - 68, 48, 13, 0, Math.PI * 2);
+                    ctx.arc(celestialX, celestialY, 15, 0, Math.PI * 2);
                     ctx.fill();
-                    ctx.fillStyle = bgColor;
+                    ctx.fillStyle = '#27264f';
                     ctx.beginPath();
-                    ctx.arc(width - 62, 45, 11, 0, Math.PI * 2);
+                    ctx.arc(celestialX + 7, celestialY - 6, 13, 0, Math.PI * 2);
                     ctx.fill();
                     ctx.restore();
                 }
 
+                drawHillLayer(lerpColor([181, 222, 222], [57, 78, 121], nightFactor),
+                    groundY - 24, 52, 220, groundOffset * 0.08);
+                drawHillLayer(lerpColor([116, 194, 151], [45, 102, 111], nightFactor),
+                    groundY - 10, 34, 170, groundOffset * 0.16);
+
                 // Clouds
                 ctx.save();
-                ctx.fillStyle = mutedColor;
+                ctx.globalAlpha = 0.78;
+                ctx.fillStyle = lerpColor([255, 255, 255], [151, 158, 194], nightFactor);
                 for (const c of clouds) {
-                    ctx.fillRect(c.x, c.y, c.w, 8);
-                    ctx.fillRect(c.x + 8, c.y - 5, c.w - 16, 5);
+                    ctx.beginPath();
+                    ctx.ellipse(c.x + c.w * 0.5, c.y + 3, c.w * 0.5, 6, 0, 0, Math.PI * 2);
+                    ctx.ellipse(c.x + c.w * 0.32, c.y, c.w * 0.25, 7, 0, 0, Math.PI * 2);
+                    ctx.ellipse(c.x + c.w * 0.66, c.y - 1, c.w * 0.27, 8, 0, 0, Math.PI * 2);
+                    ctx.fill();
                 }
                 ctx.restore();
 
-                // Ground Horizon Line & Bumps
-                ctx.fillStyle = fgColor;
-                ctx.fillRect(0, groundY, width, 2);
+                for (const tree of trees) {
+                    drawTree(tree, nightFactor);
+                }
+
+                // Colorful ground with the existing scrolling terrain details.
+                const groundGradient = ctx.createLinearGradient(0, groundY, 0, height);
+                groundGradient.addColorStop(0, lerpColor([118, 205, 132], [55, 119, 105], nightFactor));
+                groundGradient.addColorStop(1, lerpColor([68, 161, 104], [37, 83, 89], nightFactor));
+                ctx.fillStyle = groundGradient;
+                ctx.fillRect(0, groundY, width, height - groundY);
+                ctx.fillStyle = lerpColor([58, 157, 91], [89, 169, 132], nightFactor);
+                ctx.fillRect(0, groundY, width, 3);
 
                 ctx.fillStyle = mutedColor;
                 for (const b of groundBumps) {
@@ -1079,8 +1193,6 @@
                     soundBtn.click();
                 } else if (e.code === 'KeyG') {
                     modMenuBtn.click();
-                } else if (e.code === 'KeyF') {
-                    fullscreenBtn.click();
                 }
             });
 
@@ -1118,53 +1230,13 @@
                 if (soundEnabled) initAudio();
             });
 
-            let isExpandedFullscreen = false;
-            function applyFullscreenUI(active) {
-                isExpandedFullscreen = active;
-                fullscreenBtn.textContent = active ? 'Exit Fullscreen' : 'Fullscreen';
-                if (active) {
-                    gameCard.classList.add('fixed', 'inset-0', 'z-50', 'max-w-none', 'rounded-none', 'flex', 'flex-col');
-                    stageContainer.classList.add('flex-1', 'flex', 'items-center');
-                    canvas.classList.remove('h-60', 'sm:h-72');
-                    canvas.classList.add('h-full');
-                } else {
-                    gameCard.classList.remove('fixed', 'inset-0', 'z-50', 'max-w-none', 'rounded-none', 'flex', 'flex-col');
-                    stageContainer.classList.remove('flex-1', 'flex', 'items-center');
-                    canvas.classList.remove('h-full');
-                    canvas.classList.add('h-60', 'sm:h-72');
-                }
-                setTimeout(resizeCanvas, 50);
+            let isExpandedFullscreen = true;
+            function applyFullscreenUI() {
+                gameCard.classList.add('fixed', 'inset-0', 'z-50', 'max-w-none', 'rounded-none', 'flex', 'flex-col');
+                stageContainer.classList.add('flex-1', 'flex', 'items-center', 'justify-center', 'min-h-0');
+                canvas.classList.remove('h-60', 'sm:h-72');
+                canvas.classList.add('h-full');
             }
-
-            fullscreenBtn.addEventListener('click', () => {
-                if (!document.fullscreenElement && !isExpandedFullscreen) {
-                    if (gameCard.requestFullscreen) {
-                        gameCard.requestFullscreen().then(() => {
-                            applyFullscreenUI(true);
-                        }).catch(() => {
-                            applyFullscreenUI(true);
-                        });
-                    } else {
-                        applyFullscreenUI(true);
-                    }
-                } else {
-                    if (document.fullscreenElement && document.exitFullscreen) {
-                        document.exitFullscreen().then(() => {
-                            applyFullscreenUI(false);
-                        }).catch(() => {
-                            applyFullscreenUI(false);
-                        });
-                    } else {
-                        applyFullscreenUI(false);
-                    }
-                }
-            });
-
-            document.addEventListener('fullscreenchange', () => {
-                if (!document.fullscreenElement && isExpandedFullscreen) {
-                    applyFullscreenUI(false);
-                }
-            });
 
             jumpBtn.addEventListener('pointerdown', (e) => {
                 e.preventDefault();
@@ -1273,9 +1345,11 @@
 
             window.addEventListener('resize', resizeCanvas);
             window.addEventListener('load', () => {
+                applyFullscreenUI();
                 syncModUI();
                 updateScoreUI();
                 resizeCanvas();
+                setTimeout(resizeCanvas, 50);
             });
         })();
     </script>
