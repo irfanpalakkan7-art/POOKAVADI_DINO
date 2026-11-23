@@ -29,7 +29,7 @@
         }
 
         @media (max-width: 640px), (max-height: 500px) {
-            #gameCard {
+            #gameCard.fullscreen-layout {
                 height: 100vh;
                 height: 100dvh;
             }
@@ -167,8 +167,20 @@
                     <p class="font-semibold text-neutral-400 uppercase tracking-wider text-[10px]">Speed &amp; World</p>
 
                     <div>
+                        <span class="block text-neutral-300 mb-1.5">Difficulty Mode</span>
+                        <div class="grid grid-cols-3 gap-1.5" id="difficultyBtns">
+                            <button type="button" data-difficulty="easy" aria-pressed="false"
+                                class="difficulty-btn py-1 rounded-md font-semibold bg-neutral-700 text-neutral-300 hover:bg-neutral-600 cursor-pointer">Easy</button>
+                            <button type="button" data-difficulty="normal" aria-pressed="true"
+                                class="difficulty-btn py-1 rounded-md font-semibold bg-emerald-600 text-white cursor-pointer">Normal</button>
+                            <button type="button" data-difficulty="hard" aria-pressed="false"
+                                class="difficulty-btn py-1 rounded-md font-semibold bg-neutral-700 text-neutral-300 hover:bg-neutral-600 cursor-pointer">Hard</button>
+                        </div>
+                    </div>
+
+                    <div>
                         <div class="flex items-center justify-between mb-1">
-                            <span class="text-neutral-300">Game Level (Easy - Tough)</span>
+                            <span class="text-neutral-300">Game Level (1 Easy - 10 Tough)</span>
                             <span id="levelValLabel" class="font-mono-score font-bold text-emerald-400">Lv 5
                                 (Normal)</span>
                         </div>
@@ -296,6 +308,7 @@
             const levelValLabel = document.getElementById('levelValLabel');
             const modSpeedSlider = document.getElementById('modSpeedSlider');
             const speedValLabel = document.getElementById('speedValLabel');
+            const difficultyBtns = document.querySelectorAll('.difficulty-btn');
             const multBtns = document.querySelectorAll('.mult-btn');
             const themeBtns = document.querySelectorAll('.theme-btn');
             const add500Btn = document.getElementById('add500Btn');
@@ -363,7 +376,20 @@
                 scoreMult: 1,
                 level: 5, // 1 (Easy) to 10 (Tough), 5 = Normal
                 speedMult: 1.0,
+                difficultyMode: 'normal',
                 theme: 'auto' // 'auto' | 'day' | 'night'
+            };
+
+            const difficultyPresets = {
+                easy: { level: 2, speedMult: 0.75 },
+                normal: { level: 5, speedMult: 1.0 },
+                hard: { level: 8, speedMult: 1.25 }
+            };
+            const difficultyNames = {
+                easy: 'Easy',
+                normal: 'Normal',
+                hard: 'Hard',
+                custom: 'Custom'
             };
 
             function getLevelTag(lvl) {
@@ -382,6 +408,14 @@
                 levelValLabel.textContent = `Lv ${mods.level} (${getLevelTag(mods.level)})`;
                 modSpeedSlider.value = String(mods.speedMult);
                 speedValLabel.textContent = `${mods.speedMult.toFixed(2).replace(/\.00$/, '.0')}x`;
+
+                difficultyBtns.forEach((btn) => {
+                    const selected = btn.dataset.difficulty === mods.difficultyMode;
+                    btn.className = selected
+                        ? 'difficulty-btn py-1 rounded-md font-semibold bg-emerald-600 text-white cursor-pointer'
+                        : 'difficulty-btn py-1 rounded-md font-semibold bg-neutral-700 text-neutral-300 hover:bg-neutral-600 cursor-pointer';
+                    btn.setAttribute('aria-pressed', String(selected));
+                });
 
                 multBtns.forEach((btn) => {
                     const val = Number(btn.dataset.mult);
@@ -411,11 +445,13 @@
                 if (mods.theme !== 'auto') activeLabels.push(mods.theme.toUpperCase());
 
                 if (activeLabels.length === 0) {
-                    modeSubtitle.textContent = 'Vanilla Mode';
+                    modeSubtitle.textContent = mods.difficultyMode === 'normal'
+                        ? 'Vanilla Mode'
+                        : `${difficultyNames[mods.difficultyMode]} Mode`;
                     activeModBar.classList.add('hidden');
                     activeModBar.innerHTML = '';
                 } else {
-                    modeSubtitle.textContent = `Modded (${activeLabels.length} active)`;
+                    modeSubtitle.textContent = `${difficultyNames[mods.difficultyMode]} Mode (${activeLabels.length} active)`;
                     activeModBar.classList.remove('hidden');
                     activeModBar.innerHTML = activeLabels
                         .map((lbl) => `<span class="px-2 py-0.5 rounded bg-emerald-600/90 text-white font-mono-score text-[10px] font-bold shadow-sm">${lbl}</span>`)
@@ -489,6 +525,8 @@
             }
 
             function resizeCanvas() {
+                const previousWidth = width;
+                const previousHeight = height;
                 if (isExpandedFullscreen) {
                     const stageRect = stageContainer.getBoundingClientRect();
                     canvas.style.width = `${stageRect.width}px`;
@@ -497,8 +535,8 @@
 
                 const canvasRect = canvas.getBoundingClientRect();
                 dpr = Math.min(window.devicePixelRatio || 1, 2);
-                width = Math.max(isExpandedFullscreen ? 1 : 320, Math.floor(canvasRect.width));
-                height = Math.max(isExpandedFullscreen ? 1 : 210, Math.floor(canvasRect.height));
+                width = Math.max(1, Math.floor(canvasRect.width));
+                height = Math.max(1, Math.floor(canvasRect.height));
                 canvas.width = width * dpr;
                 canvas.height = height * dpr;
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -509,7 +547,9 @@
                     dino.y = groundY - (dino.isDucking ? dino.duckHeight : dino.height);
                 }
 
-                if (groundBumps.length === 0) initScenery();
+                if (groundBumps.length === 0 || previousWidth !== width || previousHeight !== height) {
+                    initScenery();
+                }
                 draw();
             }
 
@@ -574,6 +614,11 @@
 
             function startGame() {
                 initAudio();
+                modPanel.classList.add('hidden');
+                if (isExpandedFullscreen) {
+                    applyFullscreenUI(false);
+                    resizeCanvas();
+                }
                 resetGame();
                 state = 'playing';
                 overlay.classList.add('opacity-0', 'pointer-events-none');
@@ -1231,11 +1276,21 @@
             });
 
             let isExpandedFullscreen = true;
-            function applyFullscreenUI() {
-                gameCard.classList.add('fixed', 'inset-0', 'z-50', 'max-w-none', 'rounded-none', 'flex', 'flex-col');
-                stageContainer.classList.add('flex-1', 'flex', 'items-center', 'justify-center', 'min-h-0');
-                canvas.classList.remove('h-60', 'sm:h-72');
-                canvas.classList.add('h-full');
+            function applyFullscreenUI(active) {
+                isExpandedFullscreen = active;
+                if (active) {
+                    gameCard.classList.add('fullscreen-layout', 'fixed', 'inset-0', 'z-50', 'max-w-none', 'rounded-none', 'flex', 'flex-col');
+                    stageContainer.classList.add('flex-1', 'flex', 'items-center', 'justify-center', 'min-h-0');
+                    canvas.classList.remove('h-60', 'sm:h-72');
+                    canvas.classList.add('h-full');
+                } else {
+                    gameCard.classList.remove('fullscreen-layout', 'fixed', 'inset-0', 'z-50', 'max-w-none', 'rounded-none', 'flex', 'flex-col');
+                    stageContainer.classList.remove('flex-1', 'flex', 'items-center', 'justify-center', 'min-h-0');
+                    canvas.classList.remove('h-full');
+                    canvas.classList.add('h-60', 'sm:h-72');
+                    canvas.style.width = '';
+                    canvas.style.height = '';
+                }
             }
 
             jumpBtn.addEventListener('pointerdown', (e) => {
@@ -1255,6 +1310,7 @@
             // Mod Menu Listeners
             modMenuBtn.addEventListener('click', () => {
                 modPanel.classList.toggle('hidden');
+                setTimeout(resizeCanvas, 50);
             });
 
             modImmortal.addEventListener('change', () => {
@@ -1281,12 +1337,25 @@
 
             modLevelSlider.addEventListener('input', () => {
                 mods.level = parseInt(modLevelSlider.value, 10) || 5;
+                mods.difficultyMode = 'custom';
                 syncModUI();
             });
 
             modSpeedSlider.addEventListener('input', () => {
                 mods.speedMult = parseFloat(modSpeedSlider.value) || 1.0;
+                mods.difficultyMode = 'custom';
                 syncModUI();
+            });
+
+            difficultyBtns.forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const preset = difficultyPresets[btn.dataset.difficulty];
+                    if (!preset) return;
+                    mods.difficultyMode = btn.dataset.difficulty;
+                    mods.level = preset.level;
+                    mods.speedMult = preset.speedMult;
+                    syncModUI();
+                });
             });
 
             multBtns.forEach((btn) => {
@@ -1337,6 +1406,7 @@
                 mods.scoreMult = 1;
                 mods.level = 5;
                 mods.speedMult = 1.0;
+                mods.difficultyMode = 'normal';
                 mods.theme = 'auto';
                 setDuck(false);
                 syncModUI();
@@ -1345,7 +1415,7 @@
 
             window.addEventListener('resize', resizeCanvas);
             window.addEventListener('load', () => {
-                applyFullscreenUI();
+                applyFullscreenUI(true);
                 syncModUI();
                 updateScoreUI();
                 resizeCanvas();
